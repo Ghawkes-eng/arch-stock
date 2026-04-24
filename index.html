@@ -1,106 +1,858 @@
-function doGet(e) {
-  var action = e.parameter.action;
-  var result;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Jubel Arch Tracker</title>
+<style>
+  :root {
+    --gold: #E8B84B;
+    --gold-dim: #c49a35;
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #222;
+    --border: #2a2a2a;
+    --text: #f0f0f0;
+    --text-muted: #888;
+    --red: #e05555;
+    --green: #4caf7d;
+    --blue: #4a9edd;
+    --blue-dim: #2d6ea8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
  
-  if (action === 'getStock') {
-    result = getStock();
-  } else if (action === 'updateStock') {
-    result = updateStock(e.parameter.sku, Number(e.parameter.qty));
-  } else if (action === 'writeLog') {
-    result = writeLog(e.parameter.timestamp, e.parameter.name, e.parameter.sku, e.parameter.type, e.parameter.qty, e.parameter.liveStock);
-  } else if (action === 'getAssets') {
-    result = getAssets();
-  } else if (action === 'updateAsset') {
-    result = updateAsset(e.parameter.item, Number(e.parameter.qty));
-  } else if (action === 'writeAssetLog') {
-    result = writeAssetLog(e.parameter.timestamp, e.parameter.name, e.parameter.item, e.parameter.type, e.parameter.qty, e.parameter.liveStock);
-  } else if (action === 'lookupUser') {
-    result = lookupUser(e.parameter.pin);
-  } else {
-    result = { error: 'No action specified' };
+  /* ── LOGIN ── */
+  #loginOverlay {
+    position: fixed; inset: 0; z-index: 999; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;
+  }
+  .login-logo { font-size: 28px; font-weight: 800; letter-spacing: -1px; color: var(--text); margin-bottom: 6px; }
+  .login-logo span { color: var(--gold); }
+  .login-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 40px; letter-spacing: 2px; text-transform: uppercase; }
+  .pin-display {
+    display: flex; gap: 12px; margin-bottom: 32px;
+  }
+  .pin-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--border); background: transparent;
+    transition: all 0.2s;
+  }
+  .pin-dot.filled { background: var(--gold); border-color: var(--gold); }
+  .keypad { display: grid; grid-template-columns: repeat(3, 72px); gap: 12px; }
+  .key {
+    width: 72px; height: 72px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 22px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+  }
+  .key:active { background: var(--gold); color: #000; transform: scale(0.95); }
+  .key.del { font-size: 18px; color: var(--text-muted); }
+  .login-error { color: var(--red); font-size: 13px; margin-top: 20px; min-height: 20px; text-align: center; }
+ 
+  /* ── HEADER ── */
+  header {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .logo { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo span { color: var(--gold); }
+  .user-badge {
+    font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;
+  }
+  .user-badge strong { color: var(--text); }
+  .sync-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+  .sync-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted);
+    transition: background 0.4s;
+  }
+  .sync-dot.ok { background: var(--green); }
+  .sync-dot.error { background: var(--red); }
+  .sync-dot.syncing { background: var(--gold); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+ 
+  /* ── TABS ── */
+  .tabs {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; overflow-x: auto; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: 1; min-width: 70px; padding: 13px 8px; border: none; background: transparent;
+    color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap;
+    letter-spacing: 0.3px;
+  }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .tab-content { display: none; padding: 16px; }
+  .tab-content.active { display: block; }
+ 
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(100px);
+    background: var(--surface2); color: var(--text); padding: 10px 20px; border-radius: 20px;
+    font-size: 13px; font-weight: 500; z-index: 100; transition: transform 0.3s; white-space: nowrap;
+    border: 1px solid var(--border);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+ 
+  /* ── SECTION TITLE ── */
+  .section-title {
+    font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 1.5px;
+    text-transform: uppercase; padding: 16px 0 8px;
   }
  
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
-}
- 
-// ── STOCK ──────────────────────────────────────────────
- 
-function getStock() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Stock');
-  if (!sheet) return { error: 'No Stock tab found' };
-  var rows = sheet.getDataRange().getValues();
-  var out = {};
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0]) out[rows[i][0]] = Number(rows[i][1]) || 0;
+  /* ── STOCK CARDS ── */
+  .sku-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; margin-bottom: 10px;
   }
-  return { stock: out };
+  .sku-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sku-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .sku-name { font-size: 15px; font-weight: 600; flex: 1; }
+  .sku-count {
+    font-size: 22px; font-weight: 800; min-width: 40px; text-align: right;
+    transition: color 0.3s;
+  }
+  .sku-count.warn { color: #e8a84b; }
+  .sku-count.crit { color: var(--red); }
+  .sku-controls { display: flex; align-items: center; gap: 8px; }
+  .qty-btn {
+    width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 18px; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s; flex-shrink: 0;
+  }
+  .qty-btn:active { background: var(--gold); color: #000; }
+  .qty-btn.add-btn { border-color: rgba(76,175,125,0.3); }
+  .qty-input {
+    flex: 1; height: 36px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 15px; font-weight: 600;
+    text-align: center; -webkit-appearance: none;
+  }
+  .confirm-btn {
+    height: 36px; padding: 0 14px; border-radius: 8px; border: none;
+    background: var(--gold); color: #000; font-size: 13px; font-weight: 700;
+    cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  }
+  .confirm-btn:active { opacity: 0.8; transform: scale(0.97); }
+  .confirm-btn.adding { background: var(--green); color: #fff; }
+  .mode-toggle {
+    display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .mode-btn {
+    flex: 1; padding: 6px; border: none; background: var(--surface2); color: var(--text-muted);
+    font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+  }
+  .mode-btn.active { background: var(--gold); color: #000; }
+ 
+  /* ── ASSET CARDS (same as stock but blue accent) ── */
+  .asset-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; margin-bottom: 10px;
+  }
+ 
+  /* ── HISTORY ── */
+  .log-entry {
+    display: flex; align-items: center; gap: 12px; padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .log-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .log-info { flex: 1; min-width: 0; }
+  .log-sku { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .log-qty { font-size: 16px; font-weight: 700; color: var(--red); }
+  .log-qty.added { color: var(--green); }
+  .log-qty.asset { color: var(--blue); }
+  .log-qty.asset.added { color: var(--green); }
+  .log-badge {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    padding: 2px 5px; border-radius: 4px; background: var(--surface2); color: var(--text-muted);
+  }
+  .empty-state { text-align: center; color: var(--text-muted); padding: 40px 0; font-size: 14px; }
+ 
+  /* ── ADMIN ── */
+  .config-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 12px;
+  }
+  .config-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .config-card p { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .admin-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .admin-row:last-child { border-bottom: none; }
+  .admin-label { flex: 1; font-size: 13px; }
+  .admin-input {
+    width: 80px; height: 36px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 14px; font-weight: 600;
+    text-align: center; -webkit-appearance: none;
+  }
+  .admin-save-btn {
+    width: 100%; padding: 14px; border-radius: 10px; border: none;
+    background: var(--gold); color: #000; font-size: 15px; font-weight: 700;
+    cursor: pointer; margin-top: 12px; transition: opacity 0.15s;
+  }
+  .admin-save-btn:active { opacity: 0.8; }
+  .admin-save-btn.blue { background: var(--blue); color: #fff; }
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+  .info-box {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; font-size: 11px; color: var(--text-muted); line-height: 1.8;
+  }
+  .danger-btn {
+    width: 100%; padding: 14px; border-radius: 10px; border: 1px solid var(--red);
+    background: transparent; color: var(--red); font-size: 14px; font-weight: 600;
+    cursor: pointer; margin-top: 8px; transition: all 0.15s;
+  }
+  .danger-btn:active { background: var(--red); color: #fff; }
+ 
+  /* ── HISTORY FILTER ── */
+  .filter-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .filter-btn {
+    padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text-muted); font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .filter-btn.active { background: var(--gold); color: #000; border-color: var(--gold); }
+  .filter-btn.blue-active { background: var(--blue); color: #fff; border-color: var(--blue); }
+</style>
+</head>
+<body>
+ 
+<!-- ═══ LOGIN ═══ -->
+<div id="loginOverlay">
+  <div class="login-logo">Jubel<span>.</span></div>
+  <div class="login-sub">Arch Tracker</div>
+  <div class="pin-display">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="keypad">
+    <button class="key" onclick="pinKey('1')">1</button>
+    <button class="key" onclick="pinKey('2')">2</button>
+    <button class="key" onclick="pinKey('3')">3</button>
+    <button class="key" onclick="pinKey('4')">4</button>
+    <button class="key" onclick="pinKey('5')">5</button>
+    <button class="key" onclick="pinKey('6')">6</button>
+    <button class="key" onclick="pinKey('7')">7</button>
+    <button class="key" onclick="pinKey('8')">8</button>
+    <button class="key" onclick="pinKey('9')">9</button>
+    <button class="key" style="opacity:0" disabled></button>
+    <button class="key" onclick="pinKey('0')">0</button>
+    <button class="key del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="login-error" id="loginError"></div>
+</div>
+ 
+<!-- ═══ APP ═══ -->
+<div id="app" style="display:none">
+ 
+  <header>
+    <div>
+      <div class="logo">Jubel<span>.</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+      <div class="user-badge">Logged in as <strong id="userNameDisplay"></strong></div>
+      <div class="sync-status">
+        <div class="sync-dot" id="syncDot"></div>
+        <span id="syncLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+ 
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('stock',this)">📦 Stock</button>
+    <button class="tab" onclick="switchTab('assets',this)">🧰 Assets</button>
+    <button class="tab" onclick="switchTab('history',this)">📋 History</button>
+    <button class="tab" onclick="switchTab('admin',this)">⚙️ Admin</button>
+  </div>
+ 
+  <div id="toast" class="toast"></div>
+ 
+  <!-- ─── STOCK TAB ─── -->
+  <div id="tab-stock" class="tab-content active">
+    <div class="section-title">🍑 330ml Cans</div>
+    <div id="cards-cans330"></div>
+    <div class="section-title">🍑 440ml Cans</div>
+    <div id="cards-cans440"></div>
+    <div class="section-title">🥫 150ml Cans</div>
+    <div id="cards-cans150"></div>
+    <div class="section-title">🛢️ Kegs</div>
+    <div id="cards-kegs"></div>
+  </div>
+ 
+  <!-- ─── ASSETS TAB ─── -->
+  <div id="tab-assets" class="tab-content">
+    <div class="section-title">🧊 YETIs</div>
+    <div id="cards-yetis"></div>
+    <div class="section-title">📣 Activation POS</div>
+    <div id="cards-actpos"></div>
+    <div class="section-title">🥶 Events Coolers</div>
+    <div id="cards-coolers"></div>
+    <div class="section-title">🪑 Events POS</div>
+    <div id="cards-eventspos"></div>
+    <div class="section-title">🍺 Bar POS</div>
+    <div id="cards-barpos"></div>
+    <div class="section-title">⛽ Gas & Bars</div>
+    <div id="cards-gasbar"></div>
+  </div>
+ 
+  <!-- ─── HISTORY TAB ─── -->
+  <div id="tab-history" class="tab-content">
+    <div class="filter-tabs">
+      <button class="filter-btn active" id="fAll" onclick="setFilter('all')">All</button>
+      <button class="filter-btn" id="fStock" onclick="setFilter('stock')">📦 Stock</button>
+      <button class="filter-btn" id="fAssets" onclick="setFilter('assets')">🧰 Assets</button>
+    </div>
+    <div id="historyList"></div>
+  </div>
+ 
+  <!-- ─── ADMIN TAB ─── -->
+  <div id="tab-admin" class="tab-content">
+    <div class="config-card">
+      <h3>📊 Google Sheets Connection</h3>
+      <p>All stock and asset changes sync to your Google Sheet in real time.</p>
+      <div class="info-box" style="margin-top:10px">
+        <strong>Script URL:</strong><br>
+        <span id="adminScriptUrl" style="word-break:break-all;font-size:10px"></span>
+      </div>
+    </div>
+ 
+    <div class="divider"></div>
+    <div class="section-title" style="padding-top:0">📦 Correct Live Stock</div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Override live counts for beer SKUs.</p>
+    <div id="stockAdminGrid"></div>
+    <button class="admin-save-btn" onclick="saveStockAdmin()">Save Stock Counts</button>
+ 
+    <div class="divider"></div>
+    <div class="section-title" style="padding-top:0">🧰 Correct Live Assets</div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Override live counts for equipment.</p>
+    <div id="assetAdminGrid"></div>
+    <button class="admin-save-btn blue" onclick="saveAssetAdmin()">Save Asset Counts</button>
+ 
+    <div class="divider"></div>
+    <button class="danger-btn" onclick="logout()">Log Out</button>
+  </div>
+ 
+</div>
+ 
+<script>
+// ════════════════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════════════════
+var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzMqo10jTJxYixb4PrIBOGsDOgy_cfANXDyYstuwjvKvgeVQ1TwX4i2kVy9XACk2TNd/exec';
+ 
+// ── BEER SKUs ──
+var SKUS = [
+  // 330ml
+  { id:'peach330', name:'Peach 330ml', group:'cans330', color:'#E8B84B' },
+  { id:'grape330', name:'Grapefruit 330ml', group:'cans330', color:'#e8814b' },
+  { id:'mango330', name:'Mango 330ml', group:'cans330', color:'#d4a844' },
+  // 440ml
+  { id:'peach440', name:'Peach 440ml', group:'cans440', color:'#E8B84B' },
+  { id:'grape440', name:'Grapefruit 440ml', group:'cans440', color:'#e8814b' },
+  { id:'mango440', name:'Mango 440ml', group:'cans440', color:'#d4a844' },
+  // 150ml
+  { id:'peach150', name:'Peach 150ml', group:'cans150', color:'#E8B84B' },
+  // Kegs
+  { id:'peach30', name:'Peach 30L Keg', group:'kegs', color:'#E8B84B' },
+  { id:'peach50', name:'Peach 50L Keg', group:'kegs', color:'#c49a35' },
+  { id:'grape30', name:'Grapefruit 30L Keg', group:'kegs', color:'#e8814b' },
+  { id:'mango30', name:'Mango 30L Keg', group:'kegs', color:'#d4a844' }
+];
+ 
+// ── ASSETS ──
+var ASSETS = [
+  // YETIs
+  { id:'yeti_sports', name:'Sports & Lifestyle Yeti', group:'yetis', color:'#4a9edd' },
+  { id:'yeti_krank', name:'Krank Yeti', group:'yetis', color:'#4a9edd' },
+  { id:'yeti_bigwhite', name:'Big White Yeti', group:'yetis', color:'#4a9edd' },
+  { id:'yeti_can', name:'Can-Shaped Cooler', group:'yetis', color:'#4a9edd' },
+  { id:'yeti_suitcase', name:'Suitcase Yeti', group:'yetis', color:'#4a9edd' },
+  // Activation POS
+  { id:'pos_neon', name:'Neon', group:'actpos', color:'#a44ae8' },
+  { id:'pos_flagbases', name:'Flag Bases', group:'actpos', color:'#a44ae8' },
+  { id:'pos_blackflag', name:'Big Black Flag', group:'actpos', color:'#a44ae8' },
+  { id:'pos_orangeflag', name:'Big Orange Flag', group:'actpos', color:'#e8814b' },
+  { id:'pos_spikebases', name:'Spike Flag Bases', group:'actpos', color:'#a44ae8' },
+  // Events Coolers
+  { id:'cool_lindr', name:'Lindr', group:'coolers', color:'#4ce8c4' },
+  { id:'cool_sainos', name:'Big Sainos Fridges', group:'coolers', color:'#4ce8c4' },
+  { id:'cool_blackar', name:'Black AR Fridge', group:'coolers', color:'#4ce8c4' },
+  { id:'cool_miniorange', name:'Mini Orange Fridge', group:'coolers', color:'#e8814b' },
+  // Events POS
+  { id:'ev_parasol', name:'Parasol', group:'eventspos', color:'#4a9edd' },
+  { id:'ev_parasolbase', name:'Parasol Base', group:'eventspos', color:'#4a9edd' },
+  { id:'ev_ped', name:'PED Barrier Covers', group:'eventspos', color:'#4a9edd' },
+  { id:'ev_scrim', name:'JUBEL Netted Scrim', group:'eventspos', color:'#4a9edd' },
+  { id:'ev_aboard', name:'A-Board', group:'eventspos', color:'#4a9edd' },
+  { id:'ev_oildrum', name:'Oil Drums', group:'eventspos', color:'#888' },
+  { id:'ev_oildrumtop', name:'Oil Drum Tops', group:'eventspos', color:'#888' },
+  // Bar POS
+  { id:'bar_peachbadge', name:'Peach Bar Badge', group:'barpos', color:'#E8B84B' },
+  { id:'bar_gfbadge', name:'GF Bar Badge', group:'barpos', color:'#e8814b' },
+  { id:'bar_runner', name:'Bar Runner', group:'barpos', color:'#4a9edd' },
+  { id:'bar_taphandle', name:'JUBEL Tap Handles', group:'barpos', color:'#E8B84B' },
+  // Gas & Bars
+  { id:'gas_main', name:'Gas Canisters', group:'gasbar', color:'#888' },
+  { id:'bar_portable', name:'Portable Bars', group:'gasbar', color:'#4a9edd' }
+];
+ 
+// Default opening counts for assets
+var ASSET_DEFAULTS = {
+  yeti_sports:4, yeti_krank:2, yeti_bigwhite:1, yeti_can:1, yeti_suitcase:1,
+  pos_neon:5, pos_flagbases:2, pos_blackflag:1, pos_orangeflag:2, pos_spikebases:2,
+  cool_lindr:1, cool_sainos:2, cool_blackar:7, cool_miniorange:2,
+  ev_parasol:4, ev_parasolbase:4, ev_ped:6, ev_scrim:3, ev_aboard:2, ev_oildrum:10, ev_oildrumtop:8,
+  bar_peachbadge:2, bar_gfbadge:2, bar_runner:3, bar_taphandle:16,
+  gas_main:9, bar_portable:2
+};
+ 
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+var currentUser = '';
+var currentPin = '';
+var liveStock = {};
+var liveAssets = {};
+var localHistory = [];
+var historyFilter = 'all';
+ 
+// ════════════════════════════════════════════════════════
+//  LOGIN
+// ════════════════════════════════════════════════════════
+var pinBuffer = '';
+ 
+function pinKey(k) {
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += k;
+  updatePinDots();
+  if (pinBuffer.length === 4) setTimeout(attemptLogin, 200);
 }
  
-function updateStock(sku, qty) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Stock');
-  if (!sheet) return { error: 'No Stock tab found' };
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === sku) {
-      sheet.getRange(i + 1, 2).setValue(qty);
-      return { success: true };
+function pinDel() {
+  pinBuffer = pinBuffer.slice(0, -1);
+  updatePinDots();
+}
+ 
+function updatePinDots() {
+  for (var i = 0; i < 4; i++) {
+    document.getElementById('d' + i).className = 'pin-dot' + (i < pinBuffer.length ? ' filled' : '');
+  }
+}
+ 
+async function attemptLogin() {
+  document.getElementById('loginError').textContent = 'Checking…';
+  try {
+    var url = SCRIPT_URL + '?action=lookupUser&pin=' + encodeURIComponent(pinBuffer);
+    var res = await fetch(url);
+    var data = await res.json();
+    if (data.success) {
+      currentUser = data.name;
+      currentPin = pinBuffer;
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      document.getElementById('userNameDisplay').textContent = currentUser;
+      document.getElementById('adminScriptUrl').textContent = SCRIPT_URL;
+      initApp();
+    } else {
+      document.getElementById('loginError').textContent = 'Incorrect PIN. Try again.';
+      pinBuffer = '';
+      updatePinDots();
     }
+  } catch(e) {
+    document.getElementById('loginError').textContent = 'Connection error. Try again.';
+    pinBuffer = '';
+    updatePinDots();
   }
-  return { error: 'SKU not found: ' + sku };
 }
  
-function writeLog(ts, name, sku, type, qty, stock) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Log');
-  if (!sheet) return { error: 'No Log tab found' };
-  sheet.appendRow([ts, name, sku, type, qty, stock]);
-  return { success: true };
+function logout() {
+  currentUser = '';
+  pinBuffer = '';
+  updatePinDots();
+  document.getElementById('loginError').textContent = '';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginOverlay').style.display = 'flex';
 }
  
-// ── ASSETS ─────────────────────────────────────────────
- 
-function getAssets() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Assets');
-  if (!sheet) return { error: 'No Assets tab found' };
-  var rows = sheet.getDataRange().getValues();
-  var out = {};
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0]) out[rows[i][0]] = Number(rows[i][1]) || 0;
-  }
-  return { assets: out };
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
+async function initApp() {
+  setSyncStatus('syncing', 'Loading…');
+  await Promise.all([loadStock(), loadAssets()]);
+  renderAll();
+  setSyncStatus('ok', 'Live');
+  setInterval(async function() {
+    await Promise.all([loadStock(), loadAssets()]);
+    renderAll();
+  }, 30000);
 }
  
-function updateAsset(item, qty) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Assets');
-  if (!sheet) return { error: 'No Assets tab found' };
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === item) {
-      sheet.getRange(i + 1, 2).setValue(qty);
-      return { success: true };
+// ════════════════════════════════════════════════════════
+//  SHEET API
+// ════════════════════════════════════════════════════════
+async function apiGet(params) {
+  var url = SCRIPT_URL + '?' + Object.keys(params).map(k => k + '=' + encodeURIComponent(params[k])).join('&');
+  var res = await fetch(url);
+  return await res.json();
+}
+ 
+async function loadStock() {
+  try {
+    var data = await apiGet({ action: 'getStock' });
+    if (data.stock) liveStock = data.stock;
+  } catch(e) { setSyncStatus('error', 'Offline'); }
+}
+ 
+async function updateStockSheet(name, qty) {
+  await apiGet({ action: 'updateStock', sku: name, qty: qty });
+}
+ 
+async function writeStockLog(name, sku, type, qty, stock) {
+  await apiGet({
+    action: 'writeLog',
+    timestamp: new Date().toISOString(),
+    name: name, sku: sku, type: type, qty: qty, liveStock: stock
+  });
+}
+ 
+async function loadAssets() {
+  try {
+    var data = await apiGet({ action: 'getAssets' });
+    if (data.assets) {
+      liveAssets = data.assets;
+    } else {
+      // Fall back to defaults if no Assets sheet yet
+      ASSETS.forEach(function(a) {
+        if (liveAssets[a.name] === undefined) liveAssets[a.name] = ASSET_DEFAULTS[a.id] || 0;
+      });
     }
+  } catch(e) {
+    ASSETS.forEach(function(a) {
+      if (liveAssets[a.name] === undefined) liveAssets[a.name] = ASSET_DEFAULTS[a.id] || 0;
+    });
   }
-  return { error: 'Item not found: ' + item };
 }
  
-function writeAssetLog(ts, name, item, type, qty, stock) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Asset Log');
-  if (!sheet) return { error: 'No Asset Log tab found' };
-  sheet.appendRow([ts, name, item, type, qty, stock]);
-  return { success: true };
+async function updateAssetSheet(name, qty) {
+  await apiGet({ action: 'updateAsset', item: name, qty: qty });
 }
  
-// ── USERS ──────────────────────────────────────────────
+async function writeAssetLog(name, item, type, qty, stock) {
+  await apiGet({
+    action: 'writeAssetLog',
+    timestamp: new Date().toISOString(),
+    name: name, item: item, type: type, qty: qty, liveStock: stock
+  });
+}
  
-function lookupUser(pin) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
-  if (!sheet) return { error: 'No Users tab found' };
-  var rows = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]).trim() === String(pin).trim()) {
-      return { success: true, name: String(rows[i][1]).trim() };
-    }
+// ════════════════════════════════════════════════════════
+//  RENDER — STOCK CARDS
+// ════════════════════════════════════════════════════════
+var stockModes = {}; // 'take' or 'add'
+ 
+function renderAll() {
+  ['cans330','cans440','cans150','kegs'].forEach(renderStockGroup);
+  ['yetis','actpos','coolers','eventspos','barpos','gasbar'].forEach(renderAssetGroup);
+  renderHistory();
+  renderAdminGrids();
+}
+ 
+function renderStockGroup(group) {
+  var container = document.getElementById('cards-' + group);
+  if (!container) return;
+  var skus = SKUS.filter(function(s) { return s.group === group; });
+  container.innerHTML = skus.map(function(sku) {
+    var count = liveStock[sku.name] !== undefined ? liveStock[sku.name] : 0;
+    var countClass = count <= 0 ? 'crit' : count <= 3 ? 'warn' : '';
+    var mode = stockModes[sku.id] || 'take';
+    return '<div class="sku-card" id="card-' + sku.id + '">' +
+      '<div class="sku-header">' +
+        '<div class="sku-dot" style="background:' + sku.color + '"></div>' +
+        '<div class="sku-name">' + sku.name + '</div>' +
+        '<div class="sku-count ' + countClass + '">' + count + '</div>' +
+      '</div>' +
+      '<div class="mode-toggle">' +
+        '<button class="mode-btn' + (mode==='take'?' active':'') + '" onclick="setStockMode(\'' + sku.id + '\',\'take\')">Take</button>' +
+        '<button class="mode-btn' + (mode==='add'?' active':'') + '" onclick="setStockMode(\'' + sku.id + '\',\'add\')">Add</button>' +
+      '</div>' +
+      '<div class="sku-controls">' +
+        '<button class="qty-btn" onclick="adjustQty(\'stock\',\'' + sku.id + '\',-1)">−</button>' +
+        '<input class="qty-input" type="number" id="qty-' + sku.id + '" value="1" min="1" max="999">' +
+        '<button class="qty-btn" onclick="adjustQty(\'stock\',\'' + sku.id + '\',1)">+</button>' +
+        '<button class="confirm-btn' + (mode==='add'?' adding':'') + '" onclick="confirmStock(\'' + sku.id + '\')">' +
+          (mode==='add' ? 'Add ↑' : 'Take ↓') + '</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+ 
+function setStockMode(id, mode) {
+  stockModes[id] = mode;
+  var group = SKUS.find(function(s) { return s.id === id; }).group;
+  renderStockGroup(group);
+}
+ 
+async function confirmStock(id) {
+  var sku = SKUS.find(function(s) { return s.id === id; });
+  var qty = parseInt(document.getElementById('qty-' + id).value) || 1;
+  var mode = stockModes[id] || 'take';
+  var current = liveStock[sku.name] || 0;
+  var newVal = mode === 'take' ? Math.max(0, current - qty) : current + qty;
+ 
+  liveStock[sku.name] = newVal;
+  renderStockGroup(sku.group);
+ 
+  localHistory.unshift({
+    type_: 'stock',
+    ts: new Date().toISOString(),
+    name: currentUser,
+    item: sku.name,
+    mode: mode,
+    qty: qty,
+    remaining: newVal,
+    color: sku.color
+  });
+  if (historyFilter === 'all' || historyFilter === 'stock') renderHistory();
+ 
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    await updateStockSheet(sku.name, newVal);
+    await writeStockLog(currentUser, sku.name, mode, qty, newVal);
+    setSyncStatus('ok', 'Saved ✓');
+    setTimeout(function() { setSyncStatus('ok', 'Live'); }, 2000);
+    showToast((mode==='take'?'−':'+')+qty+' '+sku.name);
+  } catch(e) {
+    setSyncStatus('error', 'Sync failed');
+    showToast('⚠️ Sync failed', true);
   }
-  return { error: 'Invalid PIN' };
 }
+ 
+// ════════════════════════════════════════════════════════
+//  RENDER — ASSET CARDS
+// ════════════════════════════════════════════════════════
+var assetModes = {};
+ 
+function renderAssetGroup(group) {
+  var container = document.getElementById('cards-' + group);
+  if (!container) return;
+  var assets = ASSETS.filter(function(a) { return a.group === group; });
+  container.innerHTML = assets.map(function(asset) {
+    var count = liveAssets[asset.name] !== undefined ? liveAssets[asset.name] : 0;
+    var countClass = count <= 0 ? 'crit' : count <= 1 ? 'warn' : '';
+    var mode = assetModes[asset.id] || 'take';
+    return '<div class="asset-card" id="acard-' + asset.id + '">' +
+      '<div class="sku-header">' +
+        '<div class="sku-dot" style="background:' + asset.color + '"></div>' +
+        '<div class="sku-name">' + asset.name + '</div>' +
+        '<div class="sku-count ' + countClass + '">' + count + '</div>' +
+      '</div>' +
+      '<div class="mode-toggle">' +
+        '<button class="mode-btn' + (mode==='take'?' active':'') + '" onclick="setAssetMode(\'' + asset.id + '\',\'take\')">Take</button>' +
+        '<button class="mode-btn' + (mode==='add'?' active':'') + '" onclick="setAssetMode(\'' + asset.id + '\',\'add\')">Return</button>' +
+      '</div>' +
+      '<div class="sku-controls">' +
+        '<button class="qty-btn" onclick="adjustQty(\'asset\',\'' + asset.id + '\',-1)">−</button>' +
+        '<input class="qty-input" type="number" id="aqty-' + asset.id + '" value="1" min="1" max="999">' +
+        '<button class="qty-btn" onclick="adjustQty(\'asset\',\'' + asset.id + '\',1)">+</button>' +
+        '<button class="confirm-btn' + (mode==='add'?' adding':'') + '" style="background:' + (mode==='add'?'var(--green)':'#4a9edd') + ';color:'+(mode==='add'?'#fff':'#fff')+'" onclick="confirmAsset(\'' + asset.id + '\')">' +
+          (mode==='add' ? 'Return ↑' : 'Take ↓') + '</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+ 
+function setAssetMode(id, mode) {
+  assetModes[id] = mode;
+  var group = ASSETS.find(function(a) { return a.id === id; }).group;
+  renderAssetGroup(group);
+}
+ 
+async function confirmAsset(id) {
+  var asset = ASSETS.find(function(a) { return a.id === id; });
+  var qty = parseInt(document.getElementById('aqty-' + id).value) || 1;
+  var mode = assetModes[id] || 'take';
+  var current = liveAssets[asset.name] !== undefined ? liveAssets[asset.name] : 0;
+  var newVal = mode === 'take' ? Math.max(0, current - qty) : current + qty;
+ 
+  liveAssets[asset.name] = newVal;
+  renderAssetGroup(asset.group);
+ 
+  localHistory.unshift({
+    type_: 'asset',
+    ts: new Date().toISOString(),
+    name: currentUser,
+    item: asset.name,
+    mode: mode,
+    qty: qty,
+    remaining: newVal,
+    color: asset.color
+  });
+  if (historyFilter === 'all' || historyFilter === 'assets') renderHistory();
+ 
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    await updateAssetSheet(asset.name, newVal);
+    await writeAssetLog(currentUser, asset.name, mode, qty, newVal);
+    setSyncStatus('ok', 'Saved ✓');
+    setTimeout(function() { setSyncStatus('ok', 'Live'); }, 2000);
+    showToast((mode==='take'?'−':'+')+qty+' '+asset.name);
+  } catch(e) {
+    setSyncStatus('error', 'Sync failed');
+    showToast('⚠️ Sync failed', true);
+  }
+}
+ 
+// ════════════════════════════════════════════════════════
+//  SHARED QTY ADJUST
+// ════════════════════════════════════════════════════════
+function adjustQty(type, id, delta) {
+  var prefix = type === 'stock' ? 'qty-' : 'aqty-';
+  var el = document.getElementById(prefix + id);
+  if (!el) return;
+  var v = (parseInt(el.value) || 1) + delta;
+  el.value = Math.max(1, v);
+}
+ 
+// ════════════════════════════════════════════════════════
+//  HISTORY
+// ════════════════════════════════════════════════════════
+function setFilter(f) {
+  historyFilter = f;
+  document.getElementById('fAll').className = 'filter-btn' + (f==='all'?' active':'');
+  document.getElementById('fStock').className = 'filter-btn' + (f==='stock'?' active':'');
+  document.getElementById('fAssets').className = 'filter-btn' + (f==='assets'?' blue-active':'');
+  renderHistory();
+}
+ 
+function renderHistory() {
+  var list = document.getElementById('historyList');
+  var filtered = localHistory.filter(function(e) {
+    if (historyFilter === 'all') return true;
+    return e.type_ === historyFilter;
+  });
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty-state">No activity yet.</div>';
+    return;
+  }
+  list.innerHTML = filtered.slice(0, 60).map(function(e) {
+    var isAdd = e.mode === 'add';
+    var badgeText = e.type_ === 'asset' ? 'ASSET' : 'STOCK';
+    var badgeColor = e.type_ === 'asset' ? 'color:#4a9edd' : 'color:var(--gold)';
+    var qtyClass = 'log-qty' + (isAdd?' added':'') + (e.type_==='asset'?' asset':'');
+    return '<div class="log-entry">' +
+      '<div class="log-dot" style="background:' + e.color + '"></div>' +
+      '<div class="log-info">' +
+        '<div class="log-sku">' + e.item + '</div>' +
+        '<div class="log-meta">By <strong>' + e.name + '</strong> · ' + formatTime(e.ts) +
+          ' · <span class="log-badge" style="' + badgeColor + '">' + badgeText + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="' + qtyClass + '">' + (isAdd?'+':'-') + e.qty + '</div>' +
+    '</div>';
+  }).join('');
+}
+ 
+function formatTime(iso) {
+  var d = new Date(iso);
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' ' +
+    d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+ 
+// ════════════════════════════════════════════════════════
+//  ADMIN
+// ════════════════════════════════════════════════════════
+function renderAdminGrids() {
+  // Stock admin
+  var sg = document.getElementById('stockAdminGrid');
+  if (sg) {
+    sg.innerHTML = SKUS.map(function(sku) {
+      var val = liveStock[sku.name] !== undefined ? liveStock[sku.name] : 0;
+      return '<div class="admin-row">' +
+        '<div class="admin-label">' + sku.name + '</div>' +
+        '<input class="admin-input" type="number" id="sadmin-' + sku.id + '" value="' + val + '" min="0">' +
+      '</div>';
+    }).join('');
+  }
+  // Asset admin
+  var ag = document.getElementById('assetAdminGrid');
+  if (ag) {
+    ag.innerHTML = ASSETS.map(function(asset) {
+      var val = liveAssets[asset.name] !== undefined ? liveAssets[asset.name] : 0;
+      return '<div class="admin-row">' +
+        '<div class="admin-label">' + asset.name + '</div>' +
+        '<input class="admin-input" type="number" id="aadmin-' + asset.id + '" value="' + val + '" min="0">' +
+      '</div>';
+    }).join('');
+  }
+}
+ 
+async function saveStockAdmin() {
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    await Promise.all(SKUS.map(function(sku) {
+      var v = parseInt(document.getElementById('sadmin-' + sku.id).value) || 0;
+      liveStock[sku.name] = v;
+      return updateStockSheet(sku.name, v);
+    }));
+    renderAll();
+    showToast('✅ Stock counts saved');
+    setSyncStatus('ok', 'Live');
+  } catch(e) {
+    setSyncStatus('error', 'Save failed');
+    showToast('⚠️ Could not save', true);
+  }
+}
+ 
+async function saveAssetAdmin() {
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    await Promise.all(ASSETS.map(function(asset) {
+      var v = parseInt(document.getElementById('aadmin-' + asset.id).value) || 0;
+      liveAssets[asset.name] = v;
+      return updateAssetSheet(asset.name, v);
+    }));
+    renderAll();
+    showToast('✅ Asset counts saved');
+    setSyncStatus('ok', 'Live');
+  } catch(e) {
+    setSyncStatus('error', 'Save failed');
+    showToast('⚠️ Could not save', true);
+  }
+}
+ 
+// ════════════════════════════════════════════════════════
+//  TABS / UI HELPERS
+// ════════════════════════════════════════════════════════
+function switchTab(id, el) {
+  document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.getElementById('tab-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+  if (id === 'admin') renderAdminGrids();
+  if (id === 'history') renderHistory();
+}
+ 
+function setSyncStatus(status, label) {
+  var dot = document.getElementById('syncDot');
+  var lbl = document.getElementById('syncLabel');
+  if (dot) dot.className = 'sync-dot ' + status;
+  if (lbl) lbl.textContent = label;
+}
+ 
+var toastTimer;
+function showToast(msg, isError) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = isError ? '#3a1a1a' : 'var(--surface2)';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { t.classList.remove('show'); }, 2500);
+}
+</script>
+</body>
+</html>
