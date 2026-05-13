@@ -794,10 +794,15 @@ function renderAdminGrids() {
 async function saveStockAdmin() {
   setSyncStatus('syncing', 'Saving…');
   try {
-    await Promise.all(SKUS.map(function(sku) {
+    await Promise.all(SKUS.map(async function(sku) {
       var v = parseInt(document.getElementById('sadmin-' + sku.id).value) || 0;
+      var old = liveStock[sku.name] || 0;
       liveStock[sku.name] = v;
-      return updateStockSheet(sku.name, v);
+      await updateStockSheet(sku.name, v);
+      if (v !== old) {
+        await writeStockLog(currentUser, sku.name, 'correction', Math.abs(v - old), v);
+        localHistory.unshift({ type_:'stock', ts: new Date().toISOString(), name: currentUser, item: sku.name, mode:'add', qty: v, remaining: v, color: sku.color });
+      }
     }));
     renderAll();
     showToast('✅ Stock counts saved');
@@ -811,10 +816,15 @@ async function saveStockAdmin() {
 async function saveAssetAdmin() {
   setSyncStatus('syncing', 'Saving…');
   try {
-    await Promise.all(ASSETS.map(function(asset) {
+    await Promise.all(ASSETS.map(async function(asset) {
       var v = parseInt(document.getElementById('aadmin-' + asset.id).value) || 0;
+      var old = liveAssets[asset.name] || 0;
       liveAssets[asset.name] = v;
-      return updateAssetSheet(asset.name, v);
+      await updateAssetSheet(asset.name, v);
+      if (v !== old) {
+        await writeAssetLog(currentUser, asset.name, 'correction', Math.abs(v - old), v);
+        localHistory.unshift({ type_:'asset', ts: new Date().toISOString(), name: currentUser, item: asset.name, mode:'add', qty: v, remaining: v, color: asset.color });
+      }
     }));
     renderAll();
     showToast('✅ Asset counts saved');
